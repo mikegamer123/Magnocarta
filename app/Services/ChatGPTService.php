@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Exception;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 class ChatGPTService
 {
@@ -169,6 +170,12 @@ class ChatGPTService
             "Art: General Interest (Children's/Teenage)"
         )
     );
+    public $bookRetrievals = array("author" => "SELECT * from books_normalized where authors like '%searchInput%'",
+        "category" => "SELECT * from books_normalized where category in (searchInput)",
+        "book" => "SELECT * from books_normalized where title like '%searchInput%'",
+        "series" => "SELECT * from books_normalized where series like '%searchInput%'",
+        "illustrator" => "SELECT * from books_normalized where illustrators like '%searchInput%'",
+        );
 
     function searchBooks ($input){
             $prompt = "
@@ -225,8 +232,34 @@ class ChatGPTService
         }
         //end of logic for categories
 
-        dd($contextDataParsed);
+        //retrieval of books for data to send to ChatGPT
+        $sqlQuery = $this->bookRetrievals[$contextDataParsed["context"]];
+        if($contextDataParsed["context"] == "category") {
+            $splitted = explode(',',$contextDataParsed["name"]);
+            for ($i = 0; $i < count($splitted); $i++){
+                $splitted[$i] = "'" . $splitted[$i] . "'" . ($i != count($splitted) - 1 ? "," : "");
+            }
+            $contextDataParsed["name"] = implode(" ", $splitted);
+            $sqlQuery = str_replace("searchInput",$contextDataParsed["name"],$sqlQuery);
+        }
+        else{
+        $sqlQuery = str_replace("searchInput",$contextDataParsed["name"],$sqlQuery);
+        }
 
+        if(array_key_exists("date",$contextDataParsed) && $contextDataParsed["date"] != "null"){
+            $sqlQuery.=" and date_published > '".$contextDataParsed["date"]."-01-01'";
+        }
+        if(array_key_exists("orderBy",$contextDataParsed) && $contextDataParsed["orderBy"] != "null"){ //TODO ADD ORDER BY LOGIC DEPENDING ON TYPE OF ORDER BY
+            // order by logic
+        }
+        if(array_key_exists("similar",$contextDataParsed) && $contextDataParsed["similar"] != "null"){ //TODO ADD SIMILAR LOGIC IF BOOKS ARE REQUIRED TO BE SIMILAR INSTEAD OF JUST SEARCHED
+           //similar logic here
+        }
+
+        $sqlQuery.=" LIMIT 20";
+        var_dump($sqlQuery);
+        $results = DB::select($sqlQuery); // book results for searching in our data in the final call
+        dd($results);
     }
 
     function retrieveContextData($input){
