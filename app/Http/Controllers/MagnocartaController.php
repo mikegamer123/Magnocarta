@@ -16,7 +16,7 @@ class MagnocartaController extends BaseController
         $chatGpt = new ChatGPTService();
         switch ($type){
             case "bookSearch" : return $chatGpt->searchBooks($input);
-            case "bookPrep" : return $chatGpt->prepareInputSearchBooks($input);
+            case "bookToppstaSearch" : return $chatGpt->searchToppstaBooks($input);
             default : return "";
         }
     }
@@ -27,22 +27,14 @@ class MagnocartaController extends BaseController
         $client = new Client(['http_errors' => false]); // we want 404 to not throw exception
 
         $searchInput = $request->input("input");
-        //get formatted input from user input
-        $outputFormat = $this->InitGPT($searchInput, "bookPrep");
-        while (!$outputFormat) {
-            $outputFormat = $this->InitGPT($searchInput, "bookPrep");
-        } //keep trying to get response if null
-        $outputFormat = array_key_exists("error", $outputFormat) ? json_decode("{\"error\": \"" . $outputFormat["error"] . "\"}", true) : json_decode($outputFormat["choices"][0]["message"]["content"], true);
-        if(array_key_exists("error", $outputFormat)) return json_encode($outputFormat);
-        //get book recommendations from formatted input
-        $output = $this->InitGPT($outputFormat);
+        $output = $this->InitGPT($searchInput);
         while (!$output) {
-            $output = $this->InitGPT($outputFormat);
+            $output = $this->InitGPT($searchInput);
         } //keep trying to get response if null
 
         $formatted = array_key_exists("error", $output) ? json_decode("{\"error\": \"" . $output["error"] . "\"}", true) : json_decode($output["choices"][0]["message"]["content"], true);
 //dd($formatted);
-        if (array_key_exists("recommendations", $formatted)) {
+        if (array_key_exists("recommendations", $formatted ?? [])) {
             for ($i = 0; $i < count($formatted["recommendations"]); $i++) {
                 if ($formatted["recommendations"][$i]["bookISBN"] && $formatted["recommendations"][$i]["bookISBN"] !== "") {
                     $urlISBN = "https://pictures.abebooks.com/isbn/{$formatted["recommendations"][$i]['bookISBN']}-uk-300.jpg";
@@ -61,9 +53,8 @@ class MagnocartaController extends BaseController
                         $items = $data["items"];
                         $filled = false;
                         for ($j = 0; $j < count($items); $j++) {
-                            $volInfo = $items[$j]["volumeInfo"] ?? [];
+                            $volInfo = $items[$j]["volumeInfo"];
                             if ($filled) break;
-                            if(!array_key_exists("industryIdentifiers",$volInfo)) continue;
                             foreach ($volInfo["industryIdentifiers"] as $identifier) {
                                 if ($identifier["type"] == "ISBN_13") {
                                     $formatted["recommendations"][$i]['bookISBN'] = $identifier["identifier"]; // fill with new ISBN
@@ -105,5 +96,17 @@ class MagnocartaController extends BaseController
         }
         $jsonReturned = json_encode($formatted); // encode data again because chatGPT can scramble the encoding of json for JS
         return $jsonReturned;
+    }
+
+    public function bookToppstaSearch(Request $request){
+        // Create a Guzzle HTTP client
+        $client = new Client(['http_errors' => false]); // we want 404 to not throw exception
+
+        $searchInput = $request->input("input");
+        $output = $this->InitGPT($searchInput, "bookToppstaSearch");
+        while (!$output) {
+            $output = $this->InitGPT($searchInput, "bookToppstaSearch");
+        } //keep trying to get response if null
+        dd();
     }
 }

@@ -142,7 +142,7 @@
                             let bookHtml = recommendation.bookName === "" ? "" : `
                            <div class= "bookDiv row my-3">
                             <div class="col-3">
-                              <img src="https://pictures.abebooks.com/isbn/${recommendation.bookISBN.replace('-','')}-uk-300.jpg" width="100%" alt="Book Cover" onerror="this.onerror=null;this.src='{{ URL::to('/') }}/images/noCoverImage.jpg';"/>
+                              <img src="https://pictures.abebooks.com/isbn/${recommendation.bookISBN.replace('-','')}-uk-300.jpg" width="100%" alt="Book Cover" onerror="this.onerror=null; this.style.display='none';"/>
                             </div>
                             <div class="col-9">
                               <p class="title">${recommendation.bookName}</p>

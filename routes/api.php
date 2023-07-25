@@ -21,3 +21,4 @@ use Illuminate\Support\Facades\Route;
 
 //MAGNOCARTA SEARCH
 Route::get('/bookSearch', [MagnocartaController::class, 'bookSearch']);
+Route::get('/bookToppstaSearch', [MagnocartaController::class, 'bookToppstaSearch']);
