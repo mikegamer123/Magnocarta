@@ -107,6 +107,6 @@ class MagnocartaController extends BaseController
         while (!$output) {
             $output = $this->InitGPT($searchInput, "bookToppstaSearch");
         } //keep trying to get response if null
-        dd();
+        return $output; //output should be in JSON format by default when returned from function
     }
 }

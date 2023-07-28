@@ -18,9 +18,10 @@ return new class extends Migration
             $table->string("isbn");
             $table->string("title");
             $table->text("description")->nullable();
+            $table->string("cover_image");
             $table->string("number_of_pages")->nullable();
             $table->integer("review_count")->nullable();
-            $table->decimal("ratings", 8, 4)->nullable();
+            $table->decimal("ratings", 8, 4);
             $table->string("series")->nullable();
             $table->text("series_description")->nullable();
             $table->string("publisher")->nullable();

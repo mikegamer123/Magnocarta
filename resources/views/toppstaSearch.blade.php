@@ -81,11 +81,12 @@
 <body>
 <div class="container">
     <div class="row mt-5">
-        <div class="col-12 mb-3 text-center text-md-left"><a href="/toppstaSearch" class="btn btn-dark">Switch to Toppsta Data</a></div>
+        <div class="col-12 mb-3 text-center text-md-left"><a href="/" class="btn btn-dark">Switch to pure ChatGPT</a></div>
         <div class="col-12 mb-3">
             <h3 class="text-center">Hello I'm Magnocarta, your digital librarian<br>
                 How can I help you?
             </h3>
+            <h4 class="text-center">Reading from Toppsta data currently.</h4>
         </div>
         <div class="col-3 d-none d-md-block"></div>
         <div class="col-md-6 col-12">
@@ -121,33 +122,45 @@
     </div>
     <script>
         $(document).ready(function () {
+            function truncateDescription(description, maxLength, anchorURL) {
+                (description === "NULL " || description === "NULL") ? "" : description; //remove null from description
+                const truncatedDescription = description.replace(/(<([^>]+)>)/gi, ''); // Remove HTML tags
+                const truncatedText = truncatedDescription.length > maxLength
+                    ? truncatedDescription.substring(0, maxLength) + '...'
+                    : truncatedDescription;
+                const anchorTag = `<a href="${anchorURL}" target="_blank"> --> Read more on Toppsta!</a>`;
+                return truncatedText + ' ' + anchorTag;
+            }
+
+
             $("#searchBtn").on("click", function () {
                 $(".loader").fadeIn();
                 $(".error").hide();
                 let input = $("#searchInput").val();
-                let url = "{{url()->current()}}/api/bookSearch?input=" + encodeURIComponent(input);
+                let url = "{{url('/')}}/api/bookToppstaSearch?input=" + encodeURIComponent(input);
 
                 $.get(url, function (data) {
                     // Handle the response data
                     let json = $.parseJSON(data);
+                    console.log(json);
                     let htmlContent = '';
                     if(json == null || json.error){
                         $(".loader").fadeOut();
                         $(".error").fadeIn();
                     }
                     else {
-                        let recommendations = json.recommendations;
+                        let recommendations = json;
                         let container = $(".recommendations");
                         recommendations.forEach(function (recommendation) {
                             // Generate the HTML content for each book
-                            let bookHtml = recommendation.bookName === "" ? "" : `
+                            let bookHtml = recommendation.title === "" ? "" : `
                            <div class= "bookDiv row my-3">
                             <div class="col-3">
-                              <img src="https://pictures.abebooks.com/isbn/${recommendation.bookISBN.replace('-','')}-uk-300.jpg" width="100%" alt="Book Cover" onerror="this.onerror=null; this.style.display='none';"/>
+                              <img src="https://toppsta.com${recommendation.cover_image}" width="100%" alt="Book Cover" onerror="this.onerror=null; this.style.display='none';"/>
                             </div>
                             <div class="col-9">
-                              <p class="title">${recommendation.bookName}</p>
-                              <p class="description">${recommendation.bookDescription}</p>
+                              <p class="title">${recommendation.title}</p>
+                              <p class="description">${truncateDescription(recommendation.description, 200, "https://toppsta.com/books/search?keywords=" + recommendation.isbn)}</p>
                             </div>
                            </div>
                           `;

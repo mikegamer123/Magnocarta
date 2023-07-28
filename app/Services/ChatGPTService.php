@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\BookNormalized;
 use Exception;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -23,9 +24,13 @@ class ChatGPTService
             "Thrillers (Children's/Teenage)",
             "War & Armed Forces (Children's/Teenage)",
             "Witches & Ghosts (Children's/Teenage)",
-            "Fantasy Romance (Teenage)"
+            "Fantasy Romance (Teenage)",
         ),
-        "Picture Books & Storybooks" => array(
+        "Mysteries & Thrillers" => array(
+            "Crime & mystery fiction (Children's / Teenage)",
+            "Thrillers (Children's / Teenage)",
+        ),
+        "Picture Books & Picture Storybooks" => array(
             "Picture Storybooks",
             "Picture Books, Activity Books & Early Learning Material"
         ),
@@ -170,11 +175,12 @@ class ChatGPTService
             "Art: General Interest (Children's/Teenage)"
         )
     );
-    public $bookRetrievals = array("author" => "SELECT * from books_normalized where authors like '%searchInput%'",
-        "category" => "SELECT * from books_normalized where category in (searchInput)",
-        "book" => "SELECT * from books_normalized where title like '%searchInput%'",
-        "series" => "SELECT * from books_normalized where series like '%searchInput%'",
-        "illustrator" => "SELECT * from books_normalized where illustrators like '%searchInput%'",
+
+    public $bookRetrievals = array("author" => "SELECT isbn,title, number_of_pages, ratings, series, publisher, date_published, authors, illustrators from books_normalized where authors like '%searchInput%'",
+        "category" => "SELECT isbn,title, number_of_pages, ratings, series, publisher, date_published, authors, illustrators from books_normalized where category in (searchInput)",
+        "book" => "SELECT isbn,title, number_of_pages, ratings, series, publisher, date_published, authors, illustrators from books_normalized where title like '%searchInput%' or series like '%searchInput%'",
+        "series" => "SELECT isbn,title, number_of_pages, ratings, series, publisher, date_published, authors, illustrators from books_normalized where series like '%searchInput%'",
+        "illustrator" => "SELECT isbn,title, number_of_pages, ratings, series, publisher, date_published, authors, illustrators from books_normalized where illustrators like '%searchInput%'",
         );
 
     function searchBooks ($input){
@@ -237,7 +243,7 @@ class ChatGPTService
         if($contextDataParsed["context"] == "category") {
             $splitted = explode(',',$contextDataParsed["name"]);
             for ($i = 0; $i < count($splitted); $i++){
-                $splitted[$i] = "'" . $splitted[$i] . "'" . ($i != count($splitted) - 1 ? "," : "");
+                $splitted[$i] = "'" . str_replace("'", "\'",$splitted[$i]) . "'" . ($i != count($splitted) - 1 ? "," : "");
             }
             $contextDataParsed["name"] = implode(" ", $splitted);
             $sqlQuery = str_replace("searchInput",$contextDataParsed["name"],$sqlQuery);
@@ -252,18 +258,56 @@ class ChatGPTService
         if(array_key_exists("orderBy",$contextDataParsed) && $contextDataParsed["orderBy"] != "null"){ //TODO ADD ORDER BY LOGIC DEPENDING ON TYPE OF ORDER BY
             // order by logic
         }
-        if(array_key_exists("similar",$contextDataParsed) && $contextDataParsed["similar"] != "null"){ //TODO ADD SIMILAR LOGIC IF BOOKS ARE REQUIRED TO BE SIMILAR INSTEAD OF JUST SEARCHED
-           //similar logic here
+        if(array_key_exists("similar",$contextDataParsed) && $contextDataParsed["similar"] != "null"){
+            if($contextDataParsed["similar"] == "yes"){
+                $similarISBN = "";
+                $results = DB::select($sqlQuery);
+                foreach ($results as $result){
+                 $similarISBN.=$result->isbn.",";
+                }
+                $similarISBN = explode(",",rtrim($similarISBN,","));
+                $books = BookNormalized::whereIn('isbn', $similarISBN)->get();
+                $groupedBy = $books->groupBy('category');
+                $categories = $groupedBy->filter(function ($books, $val) {
+                    return !is_null($val) && $val !== "NULL";
+                })->keys(); //get categories that are from the books for similar data
+                $groupedBy = $books->groupBy('authors');
+                $authors = $groupedBy->filter(function ($books, $val) {
+                    return !is_null($val) && $val !== "NULL";
+                })->keys(); //get authors for similar data
+                $groupedBy = $books->groupBy('illustrators');
+                $illustrators = $groupedBy->filter(function ($books, $val) {
+                    return !is_null($val) && $val !== "NULL";
+                })->keys();  //get illustrators that are from the books for similar data
+                $groupedBy = $books->groupBy('publisher');
+                $publishers = $groupedBy->filter(function ($books, $val) {
+                    return !is_null($val) && $val !== "NULL";
+                })->keys();  //get publisher for similar data
+                $books = BookNormalized::whereNotIn('isbn', $similarISBN) -> whereIn('category', $categories)
+//                    ->where(function ($query) use ($categories, $authors, $publishers, $illustrators) {
+//                        $query->whereIn('category', $categories);
+//                            ->orWhereIn('authors', $authors)
+//                            ->orWhereIn('publisher', $publishers)
+//                            ->orWhereIn('illustrators', $illustrators); //TODO CHECK IF NEEDED TO CHECK BY MORE THAN CATEGORY
+//                    })
+                    ->limit(20)
+                    ->get();
+                $isbnString = $books->pluck('isbn')->map(function ($isbn) { return "'" . $isbn . "'"; })->implode(',');
+               $sqlQuery = "SELECT isbn,title, number_of_pages, ratings, series, publisher, date_published, authors, illustrators from books_normalized where isbn in (".$isbnString.")";
+            }
         }
 
-        $sqlQuery.=" LIMIT 20";
-        var_dump($sqlQuery);
+        $sqlQuery.="ORDER BY review_count DESC, ratings DESC, date_published DESC LIMIT 20";
         $results = DB::select($sqlQuery); // book results for searching in our data in the final call
-        dd($results);
+        $json = json_encode($results);
+        $finalData = $this->finalRetrieval($input, $json);
+        $finalDataParsed = array_key_exists("error", $finalData) ? json_decode("{\"error\": \"" . $finalData["error"] . "\"}", true) : json_decode($finalData["choices"][0]["message"]["content"], true)["data"];
+        $books = BookNormalized::whereIn('isbn', $finalDataParsed)->get()->toJson();
+        return $books;
     }
 
     function retrieveContextData($input){
-        $prompt = "I want you to act like a sentence context extractor. I will give you an sentence and you need to return an \'context\' variable from the given available contexts (category, book, series, author, illustrator). If the context is categorical then return most relevant value for \'name\' variable from this list of categories (\"Children\'s / Teenage Fiction & True Stories\", \"Picture Books & Storybooks\", \"Educational & Learning\", \"Early Learning & Activity Books\", \"Animals & Wildlife\", \"General Non-Fiction\", \"Health & Personal Development\", \"Poetry & Literature\", \"Educational: English Language & Reading\", \"Graphic Novels & Comics\", \"Mathematics & Science\", \"Cooking & Food\", \"Reference & Encyclopedias\", \"Music & Art\");\nIf in the sentence there is by, from and then a name, that is an author context. As well as return if there is a date or time mentioned in the \'date\' variable in numeric value or \'this year\' or \'next year\' , name of the book, author, series or similar in the \'name\' variable, \'orderBy\' returned from the context, values can be from this list (newest, oldest, best, popular). If a variable has no data in the sentence return the value as \'null\'. \'similar\' variable has the value yes if the sentence is asking for something similar to what is wanted, and no if it is asking directly for one type of series, book by author, or just books by that one author. The format must be all variables returned in a list.\nExample is sentence:  \"I want to read a new book in the harry potter series\" , your response: \"{data: {\"context\" : \"series\", \"date\": \"null\", \"name\":\"harry potter\", \"orderBy\" : \"newest\", \"similar\" : \"no\"}}\".\nAnother example:  sentence:  \"I want to read a book published in 2019 by Johny Mans\" , your response : \"{data: {\"context\" : \"author\", \"date\": \"2019\", \"name\":\"Johny Mans\", \"orderBy\" : \"null\", \"similar\" : \"no\"}}\".\nAnother example :  sentence :  \"Books like Harry Potter \", your response :{data: {\"context\" : \"book\", \"date\": \"null\", \"name\":\"Harry Potter\", \"orderBy\" : \"null\", \"similar\" : \"yes\"}}\".\nAnother example :  sentence :  \"A Middle grade murder mystery series\", your response : {data: {\"context\" : \"category\", \"date\": \"null\", \"name\":\"Children\'s / Teenage Fiction & True Stories\", \"orderBy\" : \"null\", similar : \"null\"}}\".\nThe list must look like  this \"data : {variable : value}\". Return in JSON format. Variables are \'context\', \'date\', \'name\', \'orderBy\', \'similar\'. Do not explain. The sentence is \"".$input."\".\n";
+        $prompt = "I want you to act like a sentence context extractor. I will give you an sentence and you need to return an \'context\' variable from the given available contexts (category, book, series, author, illustrator). If the context is categorical then return most relevant value for \'name\' variable from this list of categories (\"Children's / Teenage Fiction & True Stories\", \"Mysteries & Thrillers\", \"Picture Books & Picture Storybooks\", \"Educational & Learning\", \"Early Learning & Activity Books\", \"Animals & Wildlife\", \"General Non-Fiction\", \"Health & Personal Development\", \"Poetry & Literature\", \"Educational: English Language & Reading\", \"Graphic Novels & Comics\", \"Mathematics & Science\", \"Cooking & Food\", \"Reference & Encyclopedias\", \"Music & Art\");\nIf in the sentence there is by, from and then a name, that is an author context. As well as return if there is a date or time mentioned in the \'date\' variable in numeric value or \'this year\' or \'next year\' , name of the book, author, series or similar in the \'name\' variable, \'orderBy\' returned from the context, values can be from this list (newest, oldest, best, popular). If a variable has no data in the sentence return the value as \'null\'. \'similar\' variable has the value yes if the sentence is asking for something similar to what is wanted, and no if it is asking directly for one type of series, book by author, or just books by that one author. The format must be all variables returned in a list.\nExample is sentence:  \"I want to read a new book in the harry potter series\" , your response: \"{data: {\"context\" : \"series\", \"date\": \"null\", \"name\":\"harry potter\", \"orderBy\" : \"newest\", \"similar\" : \"no\"}}\".\nAnother example:  sentence:  \"I want to read a book published in 2019 by Johny Mans\" , your response : \"{data: {\"context\" : \"author\", \"date\": \"2019\", \"name\":\"Johny Mans\", \"orderBy\" : \"null\", \"similar\" : \"no\"}}\".\nAnother example :  sentence :  \"Books like Harry Potter \", your response :{data: {\"context\" : \"book\", \"date\": \"null\", \"name\":\"Harry Potter\", \"orderBy\" : \"null\", \"similar\" : \"yes\"}}\".\nAnother example :  sentence :  \"A Middle grade murder mystery series\", your response : {data: {\"context\" : \"category\", \"date\": \"null\", \"name\":\"Children\'s / Teenage Fiction & True Stories\", \"orderBy\" : \"null\", similar : \"null\"}}\".\nThe list must look like  this \"data : {variable : value}\". Return in JSON format. Variables are \'context\', \'date\', \'name\', \'orderBy\', \'similar\'. Do not explain. The sentence is \"".$input."\".\n";
         return $this->callGpt($prompt);
     }
 
@@ -290,7 +334,6 @@ class ChatGPTService
                         "presence_penalty" => 0.5
                     ])
                     ->json();
-
                 // Check if an error occurred
                 if (isset($data['error'])) {
                     if ($data['error'] === "false") {
@@ -304,8 +347,23 @@ class ChatGPTService
                 }
             }
         } catch (Exception $e) {
+            dd($data);
             $data['error'] = "error: " . $e->getMessage();
         }
         return $data;
+    }
+
+    private function finalRetrieval($input,$json)
+    {
+            $prompt = "You are a book recommendation engine AI.
+Return answer in JSON.
+Do not explain.
+Return just ISBN.
+Response must be in JSON format like this :  \"data\" :  {\"isbn1\", \"isbn2\"}.
+User prompt is : \"".$input."\"
+Return at most 5 books, do not return book if it does not match criteria in given the prompt.
+I am going to give you a dataset in JSON of books, with different types of data, that you can use.
+The data is:".$json." , end of data.";
+        return $this->callGpt($prompt);
     }
 }
